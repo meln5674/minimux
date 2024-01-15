@@ -77,3 +77,77 @@ var _ = Describe("Redirecting", func() {
 		Expect(location.String()).To(Equal("/foo"))
 	})
 })
+
+var _ = Describe("StaticData", func() {
+	When("no path variable is specified", func() {
+		When("there is data that matches the whole URL", func() {
+			It("should return that data", func() {
+				s := minimux.StaticData{
+					StaticBytes:    map[string]minimux.StaticBytes{"/foo": {Data: []byte("bar"), ContentType: "baz"}},
+					DefaultHandler: minimux.NotFound,
+				}
+				req, err := http.NewRequest(http.MethodGet, "http://localhost/foo", nil)
+				Expect(err).ToNot(HaveOccurred())
+				resp := httptest.NewRecorder()
+				Expect(s.ServeHTTP(context.Background(), resp, req, nil, nil)).To(Succeed())
+				res := resp.Result()
+				Expect(res.StatusCode).To(Equal(http.StatusOK))
+				Expect(res.Header).To(HaveKeyWithValue("Content-Type", []string{"baz"}))
+				Expect(resp.Body.String()).To(Equal("bar"))
+			})
+		})
+	})
+	When("a path variable is specified", func() {
+		When("there is data that matches the path variable", func() {
+			It("should return that data", func() {
+				s := minimux.StaticData{
+					StaticBytes:    map[string]minimux.StaticBytes{"/foo": {Data: []byte("bar"), ContentType: "baz"}},
+					DefaultHandler: minimux.NotFound,
+					PathVar:        "filename",
+				}
+				req, err := http.NewRequest(http.MethodGet, "http://localhost/prefix/foo", nil)
+				Expect(err).ToNot(HaveOccurred())
+				resp := httptest.NewRecorder()
+				Expect(s.ServeHTTP(context.Background(), resp, req, map[string]string{"filename": "/foo"}, nil)).To(Succeed())
+				res := resp.Result()
+				Expect(res.StatusCode).To(Equal(http.StatusOK))
+				Expect(res.Header).To(HaveKeyWithValue("Content-Type", []string{"baz"}))
+				Expect(resp.Body.String()).To(Equal("bar"))
+			})
+		})
+	})
+	When("There is no data that matches", func() {
+		When("There is a default handler", func() {
+			It("should call it", func() {
+				s := minimux.StaticData{
+					StaticBytes:    map[string]minimux.StaticBytes{"foo": {Data: []byte("bar"), ContentType: "baz"}},
+					DefaultHandler: minimux.NotFound,
+				}
+				req, err := http.NewRequest(http.MethodGet, "http://localhost/bar", nil)
+				Expect(err).ToNot(HaveOccurred())
+				resp := httptest.NewRecorder()
+				Expect(s.ServeHTTP(context.Background(), resp, req, nil, nil)).To(Succeed())
+				res := resp.Result()
+				Expect(res.StatusCode).To(Equal(http.StatusNotFound))
+				Expect(res.Header).ToNot(HaveKey("Content-Type"))
+				Expect(resp.Body.String()).To(BeEmpty())
+			})
+		})
+		When("There isn't a default handler", func() {
+			It("should do nothing", func() {
+				s := minimux.StaticData{
+					StaticBytes: map[string]minimux.StaticBytes{"foo": {Data: []byte("bar"), ContentType: "baz"}},
+				}
+				req, err := http.NewRequest(http.MethodGet, "http://localhost/bar", nil)
+				Expect(err).ToNot(HaveOccurred())
+				resp := httptest.NewRecorder()
+				resp.Header().Add("foo", "bar")
+				Expect(s.ServeHTTP(context.Background(), resp, req, nil, nil)).To(Succeed())
+				res := resp.Result()
+				Expect(res.StatusCode).To(Equal(http.StatusOK))
+				Expect(res.Header).ToNot(HaveKey("Content-Type"))
+				Expect(resp.Body.String()).To(BeEmpty())
+			})
+		})
+	})
+})

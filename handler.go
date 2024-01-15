@@ -63,3 +63,58 @@ func RedirectingTo(url string, statusCode int) Handler {
 		return nil
 	})
 }
+
+// StaticBytes is static data to return
+type StaticBytes struct {
+	Data        []byte
+	ContentType string
+}
+
+// ServeHTTP implements Handler
+func (s StaticBytes) ServeHTTP(ctx context.Context, w http.ResponseWriter, req *http.Request, pathVars map[string]string, formErr error) error {
+	w.Header().Add("Content-Type", s.ContentType)
+	w.WriteHeader(http.StatusOK)
+	_, err := w.Write(s.Data)
+	return err
+}
+
+// StaticString is static data to return
+type StaticString struct {
+	Data        string
+	ContentType string
+}
+
+// ServeHTTP implements Handler
+func (s StaticString) ServeHTTP(ctx context.Context, w http.ResponseWriter, req *http.Request, pathVars map[string]string, formErr error) error {
+	return StaticBytes{Data: []byte(s.Data), ContentType: s.ContentType}.ServeHTTP(ctx, w, req, pathVars, formErr)
+}
+
+// StaticData is a set of static strings and bytes which answers requests with the matching data.
+// If there is no match, and Default is non-nil, it will be called, otherwise, the response will be untouched.
+// If PathVar is non-empty, that path variable will be used as the map key instead of the entire URL path.
+// If that variable is not present, it will act as if the path was not matched.
+type StaticData struct {
+	StaticBytes    map[string]StaticBytes
+	DefaultHandler Handler
+	PathVar        string
+}
+
+// ServeHTTP implements Handler
+func (s StaticData) ServeHTTP(ctx context.Context, w http.ResponseWriter, req *http.Request, pathVars map[string]string, formErr error) error {
+	ok := true
+	key := req.URL.Path
+	var byteData StaticBytes
+	if s.PathVar != "" {
+		key, ok = pathVars[s.PathVar]
+	}
+	if ok {
+		byteData, ok = s.StaticBytes[key]
+	}
+	if ok {
+		return byteData.ServeHTTP(ctx, w, req, pathVars, formErr)
+	}
+	if s.DefaultHandler != nil {
+		return s.DefaultHandler.ServeHTTP(ctx, w, req, pathVars, formErr)
+	}
+	return nil
+}
