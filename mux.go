@@ -91,18 +91,19 @@ func (m innerMux) ServeHTTP(ctx context.Context, w http.ResponseWriter, req *htt
 	preProcessorDone := false
 	if m.PostProcess != nil {
 		defer func() {
-			if !preProcessorDone {
-				r := recover()
-				if r != nil {
-					w.WriteHeader(http.StatusInternalServerError)
-					statusCode = StatusPreProcessPanic
-					var ok bool
-					err, ok = r.(error)
-					if !ok {
-						err = fmt.Errorf("%v", r)
-					}
-					m.PostProcess(ctx, req, statusCode, err)
+			if preProcessorDone {
+				return
+			}
+			r := recover()
+			if r != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				statusCode = StatusPreProcessPanic
+				var ok bool
+				err, ok = r.(error)
+				if !ok {
+					err = fmt.Errorf("%v", r)
 				}
+				m.PostProcess(ctx, req, statusCode, err)
 			}
 		}()
 	}
@@ -133,21 +134,27 @@ func (m innerMux) ServeHTTP(ctx context.Context, w http.ResponseWriter, req *htt
 			if !ok {
 				err = fmt.Errorf("%v", r)
 			}
-		}
-		if methodNotAllowed {
-			statusCode = http.StatusMethodNotAllowed
-			w.WriteHeader(statusCode)
-		} else if !found {
-			if m.DefaultHandler == nil {
-				return
-			}
-			err = m.DefaultHandler.ServeHTTP(ctx, snoopW, req, nil, nil)
-		}
-		if statusCode == 0 {
-			statusCode = http.StatusOK
-		}
-		if m.PostProcess != nil {
+			// The panicked part of the stack trace is only available within this block,
+			// which means if the use wants to potentially handle the panic by displaying
+			// the trace, e.g. logr.Logger.Error, this has to be called here, and we must
+			// duplicate the call
 			m.PostProcess(ctx, req, statusCode, err)
+		} else {
+			if methodNotAllowed {
+				statusCode = http.StatusMethodNotAllowed
+				w.WriteHeader(statusCode)
+			} else if !found {
+				if m.DefaultHandler == nil {
+					return
+				}
+				err = m.DefaultHandler.ServeHTTP(ctx, snoopW, req, nil, nil)
+			}
+			if statusCode == 0 {
+				statusCode = http.StatusOK
+			}
+			if m.PostProcess != nil {
+				m.PostProcess(ctx, req, statusCode, err)
+			}
 		}
 	}()
 
