@@ -29,6 +29,16 @@ type snoopingResponseWriter struct {
 	statusCode *int
 }
 
+var _ = http.ResponseWriter(snoopingResponseWriter{})
+
+type snoopingHijackingResponseWriter struct {
+	snoopingResponseWriter
+	http.Hijacker
+}
+
+var _ = http.ResponseWriter(snoopingHijackingResponseWriter{})
+var _ = http.Hijacker(snoopingHijackingResponseWriter{})
+
 func (s snoopingResponseWriter) Header() http.Header {
 	return s.inner.Header()
 }
@@ -40,6 +50,21 @@ func (s snoopingResponseWriter) Write(b []byte) (int, error) {
 func (s snoopingResponseWriter) WriteHeader(statusCode int) {
 	*s.statusCode = statusCode
 	s.inner.WriteHeader(statusCode)
+}
+
+func snoopOn(w http.ResponseWriter, statusCode *int) http.ResponseWriter {
+	snooping := snoopingResponseWriter{
+		statusCode: statusCode,
+		inner:      w,
+	}
+	hj, ok := w.(http.Hijacker)
+	if !ok {
+		return snooping
+	}
+	return snoopingHijackingResponseWriter{
+		snoopingResponseWriter: snooping,
+		Hijacker:               hj,
+	}
 }
 
 // Mux routes http requests to handlers
@@ -119,7 +144,7 @@ func (m innerMux) ServeHTTP(ctx context.Context, w http.ResponseWriter, req *htt
 	preProcessorDone = true
 
 	// Set up the method not allowed handler, default handler, and post-processor
-	snoopW := snoopingResponseWriter{inner: w, statusCode: &statusCode}
+	snoopW := snoopOn(w, &statusCode)
 	found := false
 	methodNotAllowed := false
 	defer func() {
